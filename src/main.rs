@@ -1,40 +1,59 @@
 use bevy::prelude::*;
 
-#[derive(Component)]
-struct Person;
+#[derive(Bundle)]
+struct PlayerBundle {
+    marker: Player,
+    sprite: SpriteBundle
+}
+
+#[derive(Bundle)]
+struct GroundBundle {
+    marker: Ground,
+    sprite: SpriteBundle
+}
 
 #[derive(Component)]
-struct Name(String);
+struct Player;
 
-#[derive(Resource)]
-struct GreetTimer(Timer);
+#[derive(Component)]
+struct Ground;
+
+#[derive(Component)]
+struct Camera;
 
 pub struct HelloPlugin;
 
 impl Plugin for HelloPlugin {
     fn build(&self, app: &mut App) {
-        app.insert_resource(GreetTimer(Timer::from_seconds(2.0, TimerMode::Repeating)))
-            .add_systems(Startup, add_people)
-            .add_systems(Update, greet_people);
+        app.add_systems(Startup, setup);
     }
 }
 
 fn main() {
     App::new()
         .add_plugins((DefaultPlugins, HelloPlugin))
+        .add_systems(Update, bevy::window::close_on_esc)
         .run();
 }
 
-fn add_people(mut commands: Commands) {
-    commands.spawn((Person, Name("Elaina Proctor".to_string())));
-    commands.spawn((Person, Name("Renzo Hume".to_string())));
-    commands.spawn((Person, Name("Zayna Nieves".to_string())));
-}
-
-fn greet_people(time: Res<Time>, mut timer: ResMut<GreetTimer>, query: Query<&Name, With<Person>>) {
-    if timer.0.tick(time.delta()).just_finished() {
-        for name in &query {
-            println!("hello {}!", name.0);
+fn setup(mut commands: Commands, server: Res<AssetServer>) {
+    commands.spawn(PlayerBundle {
+        marker: Player,
+        sprite: SpriteBundle { 
+            transform: Transform { translation: Vec3::new(0.0, 0.0, 0.0), 
+                                scale: Vec3::new(1.0, 1.0, 1.0),
+                                ..default() },
+            texture: server.load("TempChar.png"), ..default()
         }
-    }
+    });
+    commands.spawn(GroundBundle {
+        marker: Ground,
+        sprite: SpriteBundle { 
+            transform: Transform { translation: Vec3::new(0.0, -144.0, 0.0), 
+                                scale: Vec3::new(1.0, 1.0, 1.0),
+                                ..default() },
+            texture: server.load("TempTile.png"), ..default()
+        }
+    });
+    commands.spawn((Camera2dBundle::default(), Camera));
 }

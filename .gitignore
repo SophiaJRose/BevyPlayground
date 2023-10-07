@@ -1,1 +1,3 @@
 /target
+## Ignore piskel files
+assets/*.piskel
