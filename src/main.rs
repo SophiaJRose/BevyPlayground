@@ -38,10 +38,24 @@ struct RunTimer(f32);
 #[derive(Component)]
 struct WallJumpTimer(f32);
 
-enum StateEnum {GROUNDED, JUMPING, WALL_SLIDING, WALL_JUMPING}
+#[derive(Copy, Clone)]
+enum StateEnum {Grounded, Jumping, WallSliding, WallJumping}
 
 #[derive(Component)]
 struct PlayerState(StateEnum);
+
+#[derive(Bundle)]
+struct SavePointBundle {
+    marker: SavePoint,
+    transform: Transform,
+    velocity: Velocity,
+    state: PlayerState,
+    run_timer: RunTimer,
+    wall_jump_timer: WallJumpTimer
+}
+
+#[derive(Component)]
+struct SavePoint;
 
 const GRAVITY: f32 = 1.0;
 const MOVE_SPEED: f32 = 6.0;
@@ -53,7 +67,7 @@ pub struct HelloPlugin;
 impl Plugin for HelloPlugin {
     fn build(&self, app: &mut App) {
         app.add_systems(Startup, setup)
-           .add_systems(Update, (movement, collision_check));
+           .add_systems(Update, (movement, collision_check, savepoint));
     }
 }
 
@@ -75,7 +89,7 @@ fn setup(mut commands: Commands, server: Res<AssetServer>) {
             texture: server.load("TempChar.png"), ..default()
         },
         velocity: Velocity(Vec2::ZERO),
-        state: PlayerState(StateEnum::JUMPING),
+        state: PlayerState(StateEnum::Jumping),
         run_timer: RunTimer(0.0),
         wall_jump_timer: WallJumpTimer(0.0)
     });
@@ -157,6 +171,14 @@ fn setup(mut commands: Commands, server: Res<AssetServer>) {
         },
         death_plane: DeathPlane(true)
     });
+    commands.spawn(SavePointBundle {
+        marker: SavePoint,
+        transform: Transform::default(),
+        velocity: Velocity(Vec2::default()),
+        state: PlayerState(StateEnum::Jumping),
+        run_timer: RunTimer(0.0),
+        wall_jump_timer: WallJumpTimer(0.0)
+    });
     commands.spawn((Camera2dBundle::default(), Camera));
 }
 
@@ -173,11 +195,11 @@ fn collision_check(ground: Query<(&Sprite, &Transform, &DeathPlane), With<Ground
             if collision.is_some() && death_plane.0 { 
                 player_transform.translation = Vec3::ZERO;
                 player_velocity.0 = Vec2::ZERO;
-                state.0 = StateEnum::JUMPING;
+                state.0 = StateEnum::Jumping;
             } else if collision.is_some_and(|c| c == Collision::Top) {
                 player_transform.translation = Vec3::new(player_pos.x, ground_pos.y + ((ground_size.y + player_size.y) / 2.0), player_pos.z);
                 player_velocity.0 = Vec2::new(player_velocity.0.x, f32::max(0.0, player_velocity.0.y));
-                state.0 = StateEnum::GROUNDED;
+                state.0 = StateEnum::Grounded;
                 any_landing_collisions = true;
             } else if collision.is_some_and(|c| c == Collision::Bottom) {
                 player_transform.translation = Vec3::new(player_pos.x, ground_pos.y - ((ground_size.y + player_size.y) / 2.0), player_pos.z);
@@ -185,17 +207,17 @@ fn collision_check(ground: Query<(&Sprite, &Transform, &DeathPlane), With<Ground
             } else if collision.is_some_and(|c| c == Collision::Left) {
                 player_transform.translation = Vec3::new(ground_pos.x - ((ground_size.x + player_size.x) / 2.0), player_pos.y, player_pos.z);
                 player_velocity.0 = Vec2::new(0.1, player_velocity.0.y * 0.8);
-                state.0 = StateEnum::WALL_SLIDING;
+                state.0 = StateEnum::WallSliding;
                 any_wall_collisions = true;
             } else if collision.is_some_and(|c| c == Collision::Right) {
                 player_transform.translation = Vec3::new(ground_pos.x + ((ground_size.x + player_size.x) / 2.0), player_pos.y, player_pos.z);
                 player_velocity.0 = Vec2::new(-0.1, player_velocity.0.y * 0.8);
-                state.0 = StateEnum::WALL_SLIDING;
+                state.0 = StateEnum::WallSliding;
                 any_wall_collisions = true;
             }
         }
         if !any_landing_collisions && !any_wall_collisions {
-            state.0 = StateEnum::JUMPING;
+            state.0 = StateEnum::Jumping;
         }
     }
 }
@@ -204,19 +226,19 @@ fn movement(mut player: Query<(&mut Transform, &mut Velocity, &mut PlayerState, 
     for (mut transform, mut velocity, mut state, mut run_timer, mut wall_jump_timer) in player.iter_mut() {
         let player_pos = transform.translation;
         let mut new_x_velocity = velocity.0.x;
-        let mut new_y_velocity = velocity.0.y - if matches!(state.0, StateEnum::WALL_SLIDING) {GRAVITY / 2.0} else {GRAVITY};
+        let mut new_y_velocity = velocity.0.y - if matches!(state.0, StateEnum::WallSliding) {GRAVITY / 2.0} else {GRAVITY};
         let left_pressed = keys.pressed(KeyCode::A) || keys.pressed(KeyCode::Left);
         let right_pressed = keys.pressed(KeyCode::D) || keys.pressed(KeyCode::Right);
         // Move left or right
         if left_pressed {
-            if run_timer.0 <= 30.0 && !matches!(state.0, StateEnum::WALL_JUMPING) {
+            if run_timer.0 <= 30.0 && !matches!(state.0, StateEnum::WallJumping) {
                 new_x_velocity = -MOVE_SPEED;
             } else {
                 new_x_velocity = -RUN_SPEED;
             }
         }
         if right_pressed  {
-            if run_timer.0 <= 30.0 && !matches!(state.0, StateEnum::WALL_JUMPING) {
+            if run_timer.0 <= 30.0 && !matches!(state.0, StateEnum::WallJumping) {
                 new_x_velocity = MOVE_SPEED;
             } else {
                 new_x_velocity = RUN_SPEED;
@@ -225,22 +247,22 @@ fn movement(mut player: Query<(&mut Transform, &mut Velocity, &mut PlayerState, 
         if left_pressed == right_pressed {
             new_x_velocity = 0.0;
             run_timer.0 = 0.0;
-        } else if matches!(state.0, StateEnum::GROUNDED) {
+        } else if matches!(state.0, StateEnum::Grounded) {
             run_timer.0 += 1.0;
         }
         let jump_just_pressed = keys.just_pressed(KeyCode::W) || keys.just_pressed(KeyCode::Space) || keys.just_pressed(KeyCode::Up);
         let jump_pressed = keys.pressed(KeyCode::W) || keys.pressed(KeyCode::Space) || keys.pressed(KeyCode::Up);
         // Jump
-        if jump_just_pressed && matches!(state.0, StateEnum::GROUNDED) {
+        if jump_just_pressed && matches!(state.0, StateEnum::Grounded) {
             new_y_velocity = JUMP_SPEED;
-            state.0 = StateEnum::JUMPING;
+            state.0 = StateEnum::Jumping;
         }
         // Wall Jump
-        if jump_just_pressed && matches!(state.0, StateEnum::WALL_SLIDING) {
+        if jump_just_pressed && matches!(state.0, StateEnum::WallSliding) {
             // Will be either 1 or -1 depending on whether velocity is positive or negative 
             velocity.0.x = RUN_SPEED * velocity.0.x.signum() * -1.0;
             new_y_velocity = JUMP_SPEED;
-            state.0 = StateEnum::WALL_JUMPING;
+            state.0 = StateEnum::WallJumping;
             wall_jump_timer.0 = 15.0;
         }
         // If jump key released before apex, half upward velocity to shorten jump
@@ -255,5 +277,25 @@ fn movement(mut player: Query<(&mut Transform, &mut Velocity, &mut PlayerState, 
         }
         let player_new_pos = Vec3::new(player_pos.x + velocity.0.x, player_pos.y + velocity.0.y, player_pos.z);
         transform.translation = player_new_pos;
+    }
+}
+
+fn savepoint(mut player: Query<(&mut Transform, &mut Velocity, &mut PlayerState, &mut RunTimer, &mut WallJumpTimer), (With<Player>, Without<SavePoint>)>, mut save_point: Query<(&mut Transform, &mut Velocity, &mut PlayerState, &mut RunTimer, &mut WallJumpTimer), (With<SavePoint>, Without<Player>)>, keys: Res<Input<KeyCode>>) {
+    for (mut player_transform, mut player_velocity, mut player_player_state, mut player_run_timer, mut player_wall_jump_timer) in player.iter_mut() {
+        let (mut save_transform, mut save_velocity, mut save_player_state, mut save_run_timer, mut save_wall_jump_timer) = save_point.single_mut();
+        if keys.just_pressed(KeyCode::Q) {
+            save_transform.translation = player_transform.translation;
+            save_velocity.0 = player_velocity.0;
+            save_player_state.0 = player_player_state.0;
+            save_run_timer.0 = player_run_timer.0;
+            save_wall_jump_timer.0 = player_wall_jump_timer.0;
+        }
+        if keys.just_pressed(KeyCode::E) {
+            player_transform.translation = save_transform.translation;
+            player_velocity.0 = save_velocity.0;
+            player_player_state.0 = save_player_state.0;
+            player_run_timer.0 = save_run_timer.0;
+            player_wall_jump_timer.0 = save_wall_jump_timer.0;
+        }
     }
 }
