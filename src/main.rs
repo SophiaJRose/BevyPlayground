@@ -1,4 +1,4 @@
-use bevy::{prelude::*, sprite::collide_aabb::{collide, Collision}};
+use bevy::{prelude::*, sprite::collide_aabb::{collide, Collision}, input::gamepad::{GamepadConnectionEvent, GamepadConnection}};
 
 #[derive(Bundle)]
 struct PlayerBundle {
@@ -73,6 +73,17 @@ struct InputState {
     load: ButtonState
 }
 
+#[derive(Resource)]
+struct ActiveGamepad(Gamepad);
+
+struct GamepadState {
+    dpad_left: GamepadButton,
+    dpad_right: GamepadButton,
+    jump: GamepadButton,
+    save: GamepadButton,
+    load: GamepadButton
+}
+
 const GRAVITY: f32 = 1.0;
 const MOVE_SPEED: f32 = 6.0;
 const RUN_SPEED: f32 = 9.0;
@@ -91,7 +102,7 @@ impl Plugin for GamePlugin {
 fn main() {
     App::new()
         .add_plugins((DefaultPlugins, GamePlugin))
-        .add_systems(Update, bevy::window::close_on_esc)
+        .add_systems(Update, (gamepad_connections, bevy::window::close_on_esc))
         .run();
 }
 
@@ -313,25 +324,77 @@ fn savepoint(mut player: Query<(&mut Transform, &mut Velocity, &mut PlayerState,
     }
 }
 
-fn input_handling(mut input: ResMut<InputState>, keys: Res<Input<KeyCode>>) {
+fn input_handling(mut input: ResMut<InputState>, keys: Res<Input<KeyCode>>, buttons: Res<Input<GamepadButton>>, active_gamepad: Option<Res<ActiveGamepad>>) {
+    let gamepad_input = get_gamepad_inputs(active_gamepad);
     // Left
-    input.left.pressed = keys.pressed(KeyCode::A) || keys.pressed(KeyCode::Left);
-    input.left.just_pressed = keys.just_pressed(KeyCode::A) || keys.just_pressed(KeyCode::Left);
-    input.left.just_released = keys.just_released(KeyCode::A) || keys.just_released(KeyCode::Left);
+    input.left.pressed = keys.pressed(KeyCode::A) || keys.pressed(KeyCode::Left) 
+        || gamepad_input.as_ref().is_some_and(|gp| buttons.pressed(gp.dpad_left));
+    input.left.just_pressed = keys.just_pressed(KeyCode::A) || keys.just_pressed(KeyCode::Left)
+        || gamepad_input.as_ref().is_some_and(|gp| buttons.just_pressed(gp.dpad_left));
+    input.left.just_released = keys.just_released(KeyCode::A) || keys.just_released(KeyCode::Left)
+        || gamepad_input.as_ref().is_some_and(|gp| buttons.just_released(gp.dpad_left));
     // Right
-    input.right.pressed = keys.pressed(KeyCode::D) || keys.pressed(KeyCode::Right);
-    input.right.just_pressed = keys.just_pressed(KeyCode::D) || keys.just_pressed(KeyCode::Right);
-    input.right.just_released = keys.just_released(KeyCode::D) || keys.just_released(KeyCode::Right);
+    input.right.pressed = keys.pressed(KeyCode::D) || keys.pressed(KeyCode::Right)
+        || gamepad_input.as_ref().is_some_and(|gp| buttons.pressed(gp.dpad_right));
+    input.right.just_pressed = keys.just_pressed(KeyCode::D) || keys.just_pressed(KeyCode::Right)
+        || gamepad_input.as_ref().is_some_and(|gp| buttons.just_pressed(gp.dpad_right));
+    input.right.just_released = keys.just_released(KeyCode::D) || keys.just_released(KeyCode::Right)
+        || gamepad_input.as_ref().is_some_and(|gp| buttons.just_released(gp.dpad_right));
     // Jump
-    input.jump.pressed = keys.pressed(KeyCode::W) || keys.pressed(KeyCode::Up) || keys.pressed(KeyCode::Space);
-    input.jump.just_pressed = keys.just_pressed(KeyCode::W) || keys.just_pressed(KeyCode::Up) || keys.just_pressed(KeyCode::Space);
-    input.jump.just_released = keys.just_released(KeyCode::W) || keys.just_released(KeyCode::Up) || keys.just_released(KeyCode::Space);
+    input.jump.pressed = keys.pressed(KeyCode::W) || keys.pressed(KeyCode::Up) || keys.pressed(KeyCode::Space) 
+        || gamepad_input.as_ref().is_some_and(|gp| buttons.pressed(gp.jump));
+    input.jump.just_pressed = keys.just_pressed(KeyCode::W) || keys.just_pressed(KeyCode::Up) || keys.just_pressed(KeyCode::Space) 
+        || gamepad_input.as_ref().is_some_and(|gp| buttons.just_pressed(gp.jump));
+    input.jump.just_released = keys.just_released(KeyCode::W) || keys.just_released(KeyCode::Up) || keys.just_released(KeyCode::Space) 
+        || gamepad_input.as_ref().is_some_and(|gp| buttons.just_released(gp.jump));
     // Save
-    input.save.pressed = keys.pressed(KeyCode::Q);
-    input.save.just_pressed = keys.just_pressed(KeyCode::Q);
-    input.save.just_released = keys.just_released(KeyCode::Q);
+    input.save.pressed = keys.pressed(KeyCode::Q) 
+        || gamepad_input.as_ref().is_some_and(|gp| buttons.pressed(gp.save));
+    input.save.just_pressed = keys.just_pressed(KeyCode::Q) 
+        || gamepad_input.as_ref().is_some_and(|gp| buttons.just_pressed(gp.save));
+    input.save.just_released = keys.just_released(KeyCode::Q) 
+        || gamepad_input.as_ref().is_some_and(|gp| buttons.just_released(gp.save));
     // Load
-    input.load.pressed = keys.pressed(KeyCode::E);
-    input.load.just_pressed = keys.just_pressed(KeyCode::E);
-    input.load.just_released = keys.just_released(KeyCode::E);
+    input.load.pressed = keys.pressed(KeyCode::E) 
+        || gamepad_input.as_ref().is_some_and(|gp| buttons.pressed(gp.load));
+    input.load.just_pressed = keys.just_pressed(KeyCode::E) 
+        || gamepad_input.as_ref().is_some_and(|gp| buttons.just_pressed(gp.load));
+    input.load.just_released = keys.just_released(KeyCode::E) 
+        || gamepad_input.as_ref().is_some_and(|gp| buttons.just_released(gp.load));
+}
+
+fn get_gamepad_inputs(active_gamepad: Option<Res<ActiveGamepad>>) -> Option<GamepadState> {
+    let gamepad = if let Some(agp) = active_gamepad {
+        agp.0
+    } else {
+        return None;
+    };
+    let dpad_left = GamepadButton { gamepad, button_type: GamepadButtonType::DPadLeft };
+    let dpad_right = GamepadButton { gamepad, button_type: GamepadButtonType::DPadRight };
+    let jump_button = GamepadButton { gamepad, button_type: GamepadButtonType::South };
+    let save_button = GamepadButton { gamepad, button_type: GamepadButtonType::LeftTrigger };
+    let load_button = GamepadButton { gamepad, button_type: GamepadButtonType::RightTrigger };
+    return Some(GamepadState { dpad_left: dpad_left, dpad_right: dpad_right, jump: jump_button, save: save_button, load: load_button })
+}
+
+fn gamepad_connections (mut commands: Commands, active_gamepad: Option<Res<ActiveGamepad>>, mut gamepad_connection_events: EventReader<GamepadConnectionEvent>) {
+    for event in gamepad_connection_events.iter() {
+        let id = event.gamepad;
+        match &event.connection {
+            GamepadConnection::Connected(info) => {
+                println!("New gamepad connected, id: {:?}, name: {}", id, info.name);
+                if active_gamepad.is_none() {
+                    commands.insert_resource(ActiveGamepad(id));
+                }
+            }
+            GamepadConnection::Disconnected => {
+                println!("Gamepad id {:?} disconnected", id);
+                if let Some(ActiveGamepad(old_id)) = active_gamepad.as_deref() {
+                    if *old_id == id {
+                        commands.remove_resource::<ActiveGamepad>();
+                    }
+                }
+            }
+        }
+    }
 }
