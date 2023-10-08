@@ -1,4 +1,4 @@
-use bevy::{prelude::*, sprite::collide_aabb::{collide, Collision}, input::gamepad::{GamepadConnectionEvent, GamepadConnection}};
+use bevy::{prelude::*, sprite::collide_aabb::{collide, Collision}, input::gamepad::{GamepadConnectionEvent, GamepadConnection}, core_pipeline::clear_color::ClearColorConfig};
 
 #[derive(Bundle)]
 struct PlayerBundle {
@@ -139,7 +139,7 @@ fn setup(mut commands: Commands, server: Res<AssetServer>) {
             transform: Transform { translation: Vec3::new(-270.0, -60.0, 0.0),
                                    scale: Vec3::splat(1.0),
                                    ..default() },
-            texture: server.load("TempPlatform.png"), ..default()
+            texture: server.load("TempSmallPlatform.png"), ..default()
         },
         death_plane: DeathPlane(false)
     });
@@ -150,7 +150,7 @@ fn setup(mut commands: Commands, server: Res<AssetServer>) {
             transform: Transform { translation: Vec3::new(270.0, -60.0, 0.0),
                                    scale: Vec3::splat(1.0),
                                    ..default() },
-            texture: server.load("TempPlatform.png"), ..default()
+            texture: server.load("TempSmallPlatform.png"), ..default()
         },
         death_plane: DeathPlane(false)
     });
@@ -161,7 +161,7 @@ fn setup(mut commands: Commands, server: Res<AssetServer>) {
             transform: Transform { translation: Vec3::new(0.0, 120.0, 0.0),
                                    scale: Vec3::splat(1.0),
                                    ..default() },
-            texture: server.load("TempPlatform.png"), ..default()
+            texture: server.load("TempSmallPlatform.png"), ..default()
         },
         death_plane: DeathPlane(false)
     });
@@ -207,7 +207,10 @@ fn setup(mut commands: Commands, server: Res<AssetServer>) {
         run_timer: RunTimer(0.0),
         wall_jump_timer: WallJumpTimer(0.0)
     });
-    commands.spawn((Camera2dBundle::default(), Camera));
+    let mut cam = Camera2dBundle::default();
+    cam.camera_2d.clear_color = ClearColorConfig::Custom(Color::rgb(0.3,0.5,0.9));
+    cam.projection.scale = 1.2;
+    commands.spawn((cam, Camera));
 }
 
 fn collision_check(ground: Query<(&Sprite, &Transform, &DeathPlane), With<Ground>>, mut player: Query<(&Sprite, &mut Transform, &mut Velocity, &mut PlayerState), (With<Player>, Without<Ground>)>) {
