@@ -10,6 +10,9 @@ struct PlayerBundle {
     wall_jump_timer: WallJumpTimer
 }
 
+#[derive(Component)]
+struct Player;
+
 #[derive(Bundle)]
 struct GroundBundle {
     marker: Ground,
@@ -18,10 +21,40 @@ struct GroundBundle {
 }
 
 #[derive(Component)]
-struct Player;
+struct Ground;
+
+#[derive(Bundle)]
+struct MovingPlatformBundle {
+    ground_marker: Ground,
+    moving_platform_marker: MovingPlatform,
+    sprite: SpriteBundle,
+    points: MovingPlatformPoints,
+    move_speed: PlatformTravelTime,
+    pause_timer: PlatformPauseTimer,
+    returning: PlatformReturning,
+    death_plane: DeathPlane     // Moving death plane doesn't make any sense, but needed for collision detection
+}
 
 #[derive(Component)]
-struct Ground;
+struct MovingPlatform;
+
+#[derive(Component)]
+struct MovingPlatformPoints {
+    start_point: Vec3,
+    end_point: Vec3
+}
+
+#[derive(Component)]
+struct PlatformTravelTime(f32);
+
+#[derive(Component)]
+struct PlatformPauseTimer {
+    pause_timer: f32,
+    pause_length: f32
+}
+
+#[derive(Component)]
+struct PlatformReturning(bool);
 
 #[derive(Component)]
 struct DeathPlane(bool);
@@ -95,7 +128,7 @@ impl Plugin for GamePlugin {
     fn build(&self, app: &mut App) {
         app.init_resource::<InputState>()
            .add_systems(Startup, setup)
-           .add_systems(Update, (input_handling, movement, collision_check, savepoint));
+           .add_systems(Update, (input_handling, player_movement, platform_movement, collision_check, savepoint));
     }
 }
 
@@ -154,15 +187,21 @@ fn setup(mut commands: Commands, server: Res<AssetServer>) {
         },
         death_plane: DeathPlane(false)
     });
-    commands.spawn(GroundBundle {
-        marker: Ground,
+    commands.spawn(MovingPlatformBundle {
+        ground_marker: Ground,
+        moving_platform_marker: MovingPlatform,
         sprite: SpriteBundle {
             sprite : Sprite { custom_size: Some(Vec2::new(240.0, 24.0)), ..default() },
             transform: Transform { translation: Vec3::new(0.0, 120.0, 0.0),
                                    scale: Vec3::splat(1.0),
                                    ..default() },
-            texture: server.load("TempSmallPlatform.png"), ..default()
+            texture: server.load("TempMovingPlatform.png"), ..default()
         },
+        points: MovingPlatformPoints{ start_point: Vec3::new(-180.0, 120.0, 0.0),
+                                      end_point: Vec3::new(180.0, 120.0, 0.0) },
+        move_speed: PlatformTravelTime(180.0),
+        pause_timer: PlatformPauseTimer {pause_timer: 0.0, pause_length: 60.0 },
+        returning: PlatformReturning(false),
         death_plane: DeathPlane(false)
     });
     commands.spawn(GroundBundle {
@@ -253,7 +292,27 @@ fn collision_check(ground: Query<(&Sprite, &Transform, &DeathPlane), With<Ground
     }
 }
 
-fn movement(mut player: Query<(&mut Transform, &mut Velocity, &mut PlayerState, &mut RunTimer, &mut WallJumpTimer), With<Player>>, input: Res<InputState>) {
+fn platform_movement(mut platform: Query<(&mut Transform, &MovingPlatformPoints, &PlatformTravelTime, &mut PlatformPauseTimer, &mut PlatformReturning), With<MovingPlatform>>) {
+    for (mut position, platform_points, travel_time, mut pause_timer, mut returning) in platform.iter_mut() {
+        if position.translation == platform_points.start_point || position.translation == platform_points.end_point {
+            pause_timer.pause_timer += 1.0;
+        }
+        if pause_timer.pause_timer == pause_timer.pause_length {
+            pause_timer.pause_timer = 0.0;
+            returning.0 = !returning.0;
+        }
+        if pause_timer.pause_timer == 0.0 {
+            let mut difference = platform_points.end_point - platform_points.start_point;
+            if returning.0 {
+                difference = difference * -1.0;
+            }
+            let movement_delta = difference / travel_time.0;
+            position.translation += movement_delta;
+        }
+    }
+}
+
+fn player_movement(mut player: Query<(&mut Transform, &mut Velocity, &mut PlayerState, &mut RunTimer, &mut WallJumpTimer), With<Player>>, input: Res<InputState>) {
     for (mut transform, mut velocity, mut state, mut run_timer, mut wall_jump_timer) in player.iter_mut() {
         let player_pos = transform.translation;
         let mut new_x_velocity = velocity.0.x;
