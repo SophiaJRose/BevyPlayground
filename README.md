@@ -1,0 +1,1 @@
+This is a small playground-esque project I made to learn Bevy. While attending a game jam, I didn't expect to be able to have a finished game that could be submitted as an entry by the deadline, so I instead used the time to toy around with Bevy and implement whatever mechanics I could think of.
